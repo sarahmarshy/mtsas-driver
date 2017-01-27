@@ -377,6 +377,41 @@ void MTSASInterface::event() {
     }
 }
 
+int MTSASInterface::store_message(const char* msg, int size){
+    at_mutex.lock();
+    //Set text mode
+    _parser.send("AT+CMGF=1");
+    _parser.recv("OK");
+    //Delete all messages
+    _parser.send("AT+CMGD=1,4");
+    _parser.recv("OK");
+    //Issue command to write a message to drafts
+    _parser.send("AT+CMGW=%d", size);
+    _parser.recv("> ");
+    _parser.write(msg, size);
+    //Signal end of the messagw
+    _parser.write("\x1A", sizeof("\x1A"));
+    //Receive message stating where message is stored
+    //(Should always be 1, as we are deleting all messages first
+    int index;
+    _parser.recv("+CMGW: %d%*[\r]%*[\n]", &index);
+    _parser.recv("OK");
+    at_mutex.unlock();
+    return index;
+}
+
+int MTSASInterface::read_message(int index, char* msg, int size){
+	 at_mutex.lock();
+    //Issue command to read message at the given index
+    _parser.send("AT+CMGR=%d", index);
+	_parser.recv("+CMGR: %*[^,],%*[^,],\"\"%*[\r]%*[\n]");
+	//Read the message
+    int bytes_read = _parser.read(msg, size);
+	_parser.recv("OK");
+	at_mutex.unlock();
+    return bytes_read;
+}
+
 ////////////////////////////////////////////////////////////////////////
 //GPS Functions 
 ////////////////////////////////////////////////////////////////////////

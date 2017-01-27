@@ -91,6 +91,8 @@ public:
     nsapi_error_t gethostbyname(const char* name, SocketAddress *address, nsapi_version_t version);
 
     virtual gps_data get_gps_location();   
+    int store_message(const char* msg, int size);
+    int read_message(int index, char* msg, int size);
 protected:
     virtual bool set_gps_state(int state);
     virtual int get_gps_state();
@@ -205,7 +207,6 @@ protected:
     virtual bool registered();
     virtual bool set_ip_addr();    
     virtual nsapi_error_t init();
-
 		
 private:
     int context;                            // CELL PDP context
