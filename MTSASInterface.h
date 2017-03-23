@@ -112,7 +112,6 @@ public:
 protected:
     virtual bool set_gps_state(int state);
     virtual int get_gps_state();
-  
 
     /** Provide access to the NetworkStack object
      *
@@ -221,7 +220,9 @@ protected:
     
     virtual bool registered();
     virtual bool set_ip_addr();    
-    virtual nsapi_error_t init();
+    virtual bool init();
+    virtual bool configure_sockets(); 
+    virtual bool activate_context(); 
 
 		
 private:
@@ -251,6 +252,9 @@ private:
     } _cbs[MTSAS_SOCKET_COUNT];             // Callbacks for socket_attach 
     DigitalOut reset;                       // Set RESET - Set the hardware reset line to the radio 
     void (*_sms_cb)(char *);                // Callback when text message is received 
+    char _apn[64];
+    char _pass[64];
+    char _uname[64];
 };
 
 #endif

@@ -53,26 +53,50 @@ MTSASInterface::MTSASInterface(PinName tx, PinName rx, bool debug)
 MTSASInterface::~MTSASInterface(){
 }
 
+nsapi_error_t MTSASInterface::connect()
+{
+    if (!init()) {
+        return NSAPI_ERROR_DEVICE_ERROR;
+    }
+    
+    if(!activate_context()){
+        return NSAPI_ERROR_DEVICE_ERROR;
+    }
+    
+    if (!registered()) {
+        return NSAPI_ERROR_NO_CONNECTION;
+    }
+
+    if (!set_ip_addr()) {
+        return NSAPI_ERROR_DHCP_FAILURE;
+    }
+    printf("hi\r\n");
+    return NSAPI_ERROR_OK;
+}
+
+nsapi_error_t MTSASInterface::connect(const char *apn,
+            const char *username, const char *password)
+{
+    set_credentials(apn, username, password);
+    return connect();
+}
+
 nsapi_error_t MTSASInterface::set_credentials(const char *apn,
     const char *username , const char *password)
 {
-    at_mutex.lock();
-    for (int i=1; i < MTSAS_SOCKET_COUNT; i++){
-        //Socket configuration 
-        //AT#SCFG=<socket id>,<PDP context>,<packet size default 300>,
-        //        <exchange timeout>,<connection to>,<txto>
-        _parser.send("AT#SCFG=%d,%d,0,0,600,0",i,context);
-        _parser.recv("OK");
-    }
-    //Activate the PDP context 
-    int ret = NSAPI_ERROR_DEVICE_ERROR;
-    if (_parser.send("AT+CGDCONT=%d,\"IP\",\"%s\"", context, apn) && _parser.recv("OK"))
-        ret = 0;
-    at_mutex.unlock();
-    return ret;
+    memset(_apn, 0, sizeof(_apn));
+    strncpy(_apn, apn, sizeof(_apn));
+
+    memset(_pass, 0, sizeof(_pass));
+    strncpy(_pass, password, sizeof(_pass));
+    
+    memset(_uname, 0, sizeof(_uname));
+    strncpy(_pass, password, sizeof(_pass));
+    
+    return 0; 
 }
 
-nsapi_error_t MTSASInterface::init()
+bool MTSASInterface::init()
 {
     _parser.setTimeout(MTSAS_RESTART_TIMEOUT);
     at_mutex.lock();
@@ -81,25 +105,46 @@ nsapi_error_t MTSASInterface::init()
     _parser.recv("OK");
     _parser.setTimeout(MTSAS_MISC_TIMEOUT);
     //Wait for response after reboot
+    bool ret = false;    
     for (int i = 0; i < 10; i++){
         if (_parser.send("AT") && _parser.recv("OK")){
+            ret = true;
             break;
         }   
     }
-
-    //Device name
-    _parser.send("AT+CGMM");
-    _parser.recv("OK");
-    _parser.send("AT+CGMM");
-    _parser.recv("OK");
     at_mutex.unlock();
-    return 0;
+    return ret;
+
 }
 
-nsapi_error_t MTSASInterface::connect(const char *apn,
-            const char *username, const char *password)
+bool MTSASInterface::activate_context()
 {
-    return (init() || set_credentials(apn) || connect()) ? NSAPI_ERROR_NO_CONNECTION : 0;
+    //Device name
+    at_mutex.lock();
+    _parser.send("AT+CGMM");
+    char* radio_type = (char*)malloc(256);
+    bool gsm =_parser.recv("HE910%*s%*[\r]%*[\n]", radio_type);
+    _parser.recv("OK");
+    
+    if(_apn == "\0" && gsm)
+        return false;
+    
+    bool ret = configure_sockets();
+    ret = ret && (!gsm || (_parser.send("AT+CGDCONT=%d,\"IP\",\"%s\"", context, _apn) && _parser.recv("OK")));
+    at_mutex.unlock();
+    return ret;
+}
+
+bool MTSASInterface::configure_sockets()
+{
+    bool ret = true;
+    for (int i=1; i < MTSAS_SOCKET_COUNT; i++){
+        //Socket configuration 
+        //AT#SCFG=<socket id>,<PDP context>,<packet size default 300>,
+        //        <exchange timeout>,<connection to>,<txto>
+        ret = ret &&_parser.send("AT#SCFG=%d,%d,0,0,600,0",i,context) && _parser.recv("OK");
+    }
+    return ret;
 }
 
 bool MTSASInterface::registered()
@@ -134,19 +179,21 @@ bool MTSASInterface::set_ip_addr()
             break;
     } 
     at_mutex.unlock();
+    if(ip_buff[0]=='\"'){
+        for(int i = 0; i<256; i++){
+            ip_buff[i] = ip_buff[i+1];
+            if(ip_buff[i] == '\"'){
+                ip_buff[i] = '\0';
+                break;
+            }
+        }
+    }
+					
     res = res && _ip_address.set_ip_address(ip_buff);
     free(ip_buff);
     return res;
 }
  
-nsapi_error_t MTSASInterface::connect()
-{
-    if (!registered() || !set_ip_addr()){
-        return NSAPI_ERROR_DEVICE_ERROR;
-    }
-    return 0;
-}
-
 nsapi_error_t MTSASInterface::disconnect() 
 {
     //Deactivate PDP context (frees any network resources associated with context)
